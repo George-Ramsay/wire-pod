@@ -10,7 +10,7 @@ The audio path should prioritize conversational latency and preserve Vector's ex
 
 ### T1. Low-latency speaker streaming
 
-**Status:** In progress on `agent/vector-audio-speaker-stream`.
+**Status:** Prototype implemented on `agent/vector-audio-speaker-stream`; physical-robot latency validation remains.
 
 Expose a streaming endpoint that accepts live signed 16-bit mono PCM and forwards chunks directly to Vector's `ExternalAudioStreamPlayback` RPC instead of buffering an entire file first.
 
@@ -22,14 +22,20 @@ Acceptance criteria:
 - Client disconnects stop the stream promptly.
 - Existing `/api-sdk/play_sound` behavior remains unchanged.
 - Parameter validation has automated tests.
+- On-device testing confirms acceptable conversational latency and no repeated buffer overruns.
 
 ### T2. Continuous Vector microphone capture
 
+**Status:** Technical spike required before implementation.
+
 Expose Vector's microphone audio as a continuous PCM stream suitable for a desktop audio bridge.
 
+The current Vector protocol still exposes the `AudioFeed` RPC and defines 1,600-sample SDK audio messages plus 15,625 Hz microphone and 16,000 Hz processed sample-rate constants. Older Vector technical documentation says the public `AudioFeed` command was defined but not implemented on some production firmware, so the first step is to probe the actual robot. If the RPC is unavailable, capture should instead branch from WirePod's existing incoming voice/audio path or use firmware support where appropriate.
+
 Acceptance criteria:
+- Confirm whether `AudioFeed` works on the target production Vector and record the actual PCM format/sample rate.
 - Capture does not require the user to say the normal Vector wake phrase for every utterance.
-- Output format is documented and stable, preferably 16 kHz signed 16-bit mono PCM.
+- Output format is documented and stable.
 - Capture can run for extended conversations.
 - Existing WirePod speech recognition can coexist with, or explicitly hand off to, bridge mode.
 - Disconnects and robot reconnections recover cleanly.
@@ -86,7 +92,7 @@ Acceptance criteria:
 - The upper-case `WirePod` packaging repository can point at and package the customized server fork when ready.
 - Upgrade/rebase instructions are documented so upstream WirePod updates can still be incorporated.
 
-## Initial API prototype
+## Initial playback prototype
 
 The first branch adds:
 
@@ -96,7 +102,17 @@ Content-Type: application/octet-stream
 Body: signed 16-bit little-endian mono PCM, written at approximately real-time speed
 ```
 
-The desktop bridge should keep this transport internal. End users should eventually interact with normal operating-system audio-device selectors rather than this HTTP endpoint.
+It also adds `chipper/cmd/vector-audio-send`, a small stdin-to-Vector streaming client. A useful first physical test is to produce real-time 16 kHz mono signed-16 PCM with ffmpeg and pipe it into the client:
+
+```bash
+cd chipper
+ffmpeg -re -i test.wav -ac 1 -ar 16000 -f s16le - | \
+  go run ./cmd/vector-audio-send -serial <VECTOR_ESN>
+```
+
+The sender itself uses only the Go standard library and has been locally compiled successfully. The full WirePod package still requires on-repository/on-device validation because this development environment cannot connect to the user's Vector or fetch the complete WirePod build dependencies.
+
+The desktop bridge should keep this HTTP transport internal. End users should eventually interact with normal operating-system audio-device selectors rather than this endpoint.
 
 ## Repository note
 
